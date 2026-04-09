@@ -64,6 +64,9 @@ CREATE TABLE IF NOT EXISTS deals (
     risk_factors TEXT,
     investment_thesis TEXT,
 
+    -- Entitlement data (JSON blob)
+    entitlement_data TEXT,
+
     -- Key dates
     date_listed TEXT,
     date_cfo TEXT,

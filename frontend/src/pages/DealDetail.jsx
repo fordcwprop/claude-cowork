@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../api'
-import { ArrowLeft, Star, Save, AlertTriangle, CheckCircle, XCircle, TrendingUp, Building2, DollarSign, Calendar, Edit3 } from 'lucide-react'
+import { ArrowLeft, Star, Save, AlertTriangle, CheckCircle, XCircle, TrendingUp, Building2, DollarSign, Calendar, Edit3, Shield, FileText, Users, Clock, MapPin } from 'lucide-react'
 
 const STATUSES = ['sourced', 'under_review', 'modeled', 'shortlisted', 'under_contract', 'closed', 'dead']
 
@@ -46,6 +46,200 @@ function Section({ title, children, icon: Icon }) {
         <h3 className="text-sm font-semibold text-gray-400">{title}</h3>
       </div>
       {children}
+    </div>
+  )
+}
+
+function RiskLevelBadge({ level }) {
+  const config = {
+    low: { bg: 'bg-green-900/40', text: 'text-green-400', border: 'border-green-700', label: 'LOW' },
+    moderate: { bg: 'bg-yellow-900/40', text: 'text-yellow-400', border: 'border-yellow-700', label: 'MODERATE' },
+    high: { bg: 'bg-orange-900/40', text: 'text-orange-400', border: 'border-orange-700', label: 'HIGH' },
+    very_high: { bg: 'bg-red-900/40', text: 'text-red-400', border: 'border-red-700', label: 'VERY HIGH' },
+  }
+  const c = config[level] || config.moderate
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${c.bg} ${c.text} ${c.border}`}>
+      {c.label}
+    </span>
+  )
+}
+
+function EntitlementHistory({ data }) {
+  if (!data) return null
+  let ent
+  try {
+    ent = typeof data === 'string' ? JSON.parse(data) : data
+  } catch { return null }
+  if (!ent || (!ent.case_number && !ent.comparable_cases?.length && !ent.political_risk_rating)) return null
+
+  const opp = ent.opposition_summary || {}
+
+  return (
+    <div className="bg-cw-card border border-cw-border rounded-xl p-4 space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Shield className="w-4 h-4 text-gray-400" />
+          <h3 className="text-sm font-semibold text-gray-400">Entitlement History</h3>
+        </div>
+        {ent.political_risk_rating && <RiskLevelBadge level={ent.political_risk_rating} />}
+      </div>
+
+      {/* Case Summary */}
+      {ent.case_number && (
+        <div className="bg-cw-dark rounded-lg p-4 space-y-3">
+          <div className="flex items-center gap-2 mb-1">
+            <FileText className="w-3.5 h-3.5 text-cw-accent" />
+            <span className="text-sm font-semibold text-white">Case {ent.case_number}</span>
+            {ent.approval_date && <span className="text-xs text-gray-500">Approved {ent.approval_date}</span>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+            {ent.filing_date && (
+              <><div className="text-gray-500">Filed</div><div>{ent.filing_date}</div></>
+            )}
+            {ent.approval_body && (
+              <><div className="text-gray-500">Approval Body</div><div>{ent.approval_body}</div></>
+            )}
+            {ent.original_request && (
+              <><div className="text-gray-500">Original Request</div><div>{ent.original_request}</div></>
+            )}
+            {ent.final_approval && (
+              <><div className="text-gray-500">Final Approval</div><div className="text-cw-green font-medium">{ent.final_approval}</div></>
+            )}
+            {ent.timeline_months && (
+              <><div className="text-gray-500">Timeline</div><div>{ent.timeline_months} months</div></>
+            )}
+            {ent.vote && (
+              <><div className="text-gray-500">Vote</div><div>{ent.vote}</div></>
+            )}
+          </div>
+
+          {ent.original_vs_final_delta && (
+            <div className="mt-2 p-2.5 bg-yellow-900/20 border border-yellow-800/40 rounded-lg">
+              <div className="text-xs font-semibold text-yellow-400 mb-1">What Changed</div>
+              <p className="text-xs text-gray-300 leading-relaxed">{ent.original_vs_final_delta}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Conditions */}
+      {ent.conditions_imposed?.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">Conditions of Approval</div>
+          <div className="space-y-1.5">
+            {ent.conditions_imposed.map((c, i) => (
+              <div key={i} className="flex items-start gap-2 text-sm">
+                <span className="text-cw-accent mt-0.5 shrink-0">•</span>
+                <span className="text-gray-300">{c}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Opposition */}
+      {(opp.level || opp.primary_objections?.length > 0) && (
+        <div className="bg-cw-dark rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Users className="w-3.5 h-3.5 text-gray-400" />
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Public Opposition</span>
+            {opp.level && <RiskLevelBadge level={opp.level === 'hostile' ? 'very_high' : opp.level === 'organized' ? 'high' : opp.level === 'minimal' || opp.level === 'none' ? 'low' : 'moderate'} />}
+          </div>
+
+          <div className="space-y-2 text-sm">
+            {opp.primary_objections?.length > 0 && (
+              <div>
+                <span className="text-gray-500">Key Objections: </span>
+                <span className="text-gray-300">{opp.primary_objections.join(' · ')}</span>
+              </div>
+            )}
+            {opp.organized_groups?.length > 0 && (
+              <div>
+                <span className="text-gray-500">Organized Groups: </span>
+                <span className="text-gray-300">{opp.organized_groups.join(', ')}</span>
+              </div>
+            )}
+            {(opp.speakers_for !== null && opp.speakers_for !== undefined || opp.speakers_against !== null && opp.speakers_against !== undefined) && (
+              <div className="flex gap-4">
+                {opp.speakers_for !== null && opp.speakers_for !== undefined && <span className="text-gray-300"><span className="text-green-400 font-medium">{opp.speakers_for}</span> spoke for</span>}
+                {opp.speakers_against !== null && opp.speakers_against !== undefined && <span className="text-gray-300"><span className="text-red-400 font-medium">{opp.speakers_against}</span> spoke against</span>}
+              </div>
+            )}
+            {opp.notes && <p className="text-xs text-gray-400 mt-1">{opp.notes}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Political Context */}
+      {ent.political_context && (
+        <div>
+          <div className="text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wider">Political Context</div>
+          <p className="text-sm text-gray-300 leading-relaxed">{ent.political_context}</p>
+        </div>
+      )}
+
+      {/* Comparable Cases */}
+      {ent.comparable_cases?.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <MapPin className="w-3.5 h-3.5 text-gray-400" />
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Comparable Rezonings</span>
+          </div>
+          <div className="space-y-2">
+            {ent.comparable_cases.map((comp, i) => {
+              const outcomeColor = comp.final_outcome === 'approved' ? 'text-green-400' : comp.final_outcome === 'denied' ? 'text-red-400' : 'text-yellow-400'
+              return (
+                <div key={i} className="bg-cw-dark rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-white">{comp.location || comp.case_number || `Comp ${i + 1}`}</span>
+                      {comp.product_type && <span className="text-xs text-gray-500 bg-cw-hover px-1.5 py-0.5 rounded">{comp.product_type}</span>}
+                    </div>
+                    <span className={`text-xs font-semibold uppercase ${outcomeColor}`}>{comp.final_outcome || '—'}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-400">
+                    {comp.units && <span>{comp.units} units</span>}
+                    {comp.density_upa && <span>{comp.density_upa} u/ac</span>}
+                    {comp.timeline_months && <span>{comp.timeline_months} mo timeline</span>}
+                    {comp.opposition_level && <span>Opposition: {comp.opposition_level}</span>}
+                    {comp.current_status && <span>{comp.current_status}</span>}
+                  </div>
+                  {comp.notes && <p className="text-xs text-gray-500 mt-1">{comp.notes}</p>}
+                  {comp.post_approval_land_sale?.per_unit && (
+                    <div className="text-xs text-cw-accent mt-1">Land traded: ${comp.post_approval_land_sale.per_unit.toLocaleString()}/unit</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Risk Notes */}
+      {ent.political_risk_notes && (
+        <div className="p-3 bg-cw-dark rounded-lg border-l-2 border-cw-yellow">
+          <div className="text-xs font-semibold text-cw-yellow mb-1">Risk Assessment</div>
+          <p className="text-xs text-gray-300 leading-relaxed">{ent.political_risk_notes}</p>
+        </div>
+      )}
+
+      {/* Sources */}
+      {ent.sources?.length > 0 && (
+        <div className="border-t border-cw-border pt-3">
+          <div className="text-xs text-gray-600 space-y-1">
+            {ent.sources.map((s, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-gray-600">{s.type?.replace(/_/g, ' ') || 'source'}</span>
+                {s.url && <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-cw-accent hover:underline truncate">{s.url}</a>}
+                {s.date && <span className="text-gray-700 shrink-0">{s.date}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -199,6 +393,9 @@ export default function DealDetail({ dealId, onBack }) {
           </div>
         </Section>
       </div>
+
+      {/* Entitlement History */}
+      <EntitlementHistory data={deal.entitlement_data} />
 
       {/* Notes */}
       <Section title="Notes" icon={Edit3}>

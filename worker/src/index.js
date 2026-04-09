@@ -290,7 +290,7 @@ async function handleCreateDeal(request, env) {
     'ltv', 'interest_rate', 'amortization_years', 'io_period_months', 'loan_term_years',
     'exit_cap_rate', 'sale_costs_pct', 'hold_period_years',
     'broker_name', 'broker_company', 'broker_email', 'broker_phone',
-    'notes', 'summary', 'risk_factors', 'investment_thesis',
+    'notes', 'summary', 'risk_factors', 'investment_thesis', 'entitlement_data',
     'date_listed', 'date_cfo', 'date_best_final', 'date_loi_submitted',
     'date_loi_accepted', 'date_dd_start', 'date_dd_end', 'date_closing',
     'unit_mix'
@@ -303,7 +303,7 @@ async function handleCreateDeal(request, env) {
   for (const field of fields) {
     if (body[field] !== undefined) {
       setCols.push(field);
-      setVals.push(field === 'unit_mix' ? JSON.stringify(body[field]) : body[field]);
+      setVals.push((field === 'unit_mix' || field === 'entitlement_data') ? JSON.stringify(body[field]) : body[field]);
       placeholders.push('?');
     }
   }
@@ -344,7 +344,7 @@ async function handleUpdateDeal(request, env, dealId) {
     'ltv', 'interest_rate', 'amortization_years', 'io_period_months', 'loan_term_years',
     'exit_cap_rate', 'sale_costs_pct', 'hold_period_years',
     'broker_name', 'broker_company', 'broker_email', 'broker_phone',
-    'notes', 'summary', 'risk_factors', 'investment_thesis',
+    'notes', 'summary', 'risk_factors', 'investment_thesis', 'entitlement_data',
     'date_listed', 'date_cfo', 'date_best_final', 'date_loi_submitted',
     'date_loi_accepted', 'date_dd_start', 'date_dd_end', 'date_closing',
     'unit_mix'
@@ -356,7 +356,7 @@ async function handleUpdateDeal(request, env, dealId) {
 
   for (const field of updatableFields) {
     if (body[field] !== undefined) {
-      const val = field === 'unit_mix' ? JSON.stringify(body[field]) : body[field];
+      const val = (field === 'unit_mix' || field === 'entitlement_data') ? JSON.stringify(body[field]) : body[field];
       sets.push(`${field} = ?`);
       vals.push(val);
       if (deal[field] !== val) {
