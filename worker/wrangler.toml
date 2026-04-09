@@ -1,0 +1,12 @@
+name = "pipeline-backend"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+# D1 Database binding - ID will be set after creation
+[[d1_databases]]
+binding = "DB"
+database_name = "pipeline-production"
+database_id = "cf13813d-38f2-4202-81dc-57c745054f23"
+
+[vars]
+ENVIRONMENT = "production"

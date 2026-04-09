@@ -1,0 +1,2 @@
+# Proxy API requests to the Worker backend (server-side proxy, preserves Access headers)
+/api/* https://pipeline-backend.office-a21.workers.dev/api/:splat 200
