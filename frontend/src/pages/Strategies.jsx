@@ -121,7 +121,7 @@ export default function Strategies() {
       })
       .then((text) => {
         setRaw(text)
-        const parsed = yaml.load(text)
+        const parsed = yaml.load(text, { schema: yaml.JSON_SCHEMA })
         setDoc(parsed)
       })
       .catch((e) => setError(e.message))
@@ -194,7 +194,7 @@ export default function Strategies() {
           <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
             <span>Version {doc?.version ?? '—'}</span>
             <span>•</span>
-            <span>Last updated {doc?.last_updated ?? '—'}</span>
+            <span>Last updated {doc?.last_updated ? String(doc.last_updated) : '—'}</span>
             <span>•</span>
             <span>{strategies.length} strategies</span>
           </div>
