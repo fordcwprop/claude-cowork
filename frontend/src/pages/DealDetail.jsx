@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../api'
-import { ArrowLeft, Star, Save, AlertTriangle, CheckCircle, XCircle, TrendingUp, Building2, DollarSign, Calendar, Edit3, Shield, FileText, Users, Clock, MapPin } from 'lucide-react'
+import { ArrowLeft, Star, Save, AlertTriangle, CheckCircle, XCircle, TrendingUp, Building2, DollarSign, Calendar, Edit3, Shield, FileText, Users, Clock, MapPin, ChevronDown, ChevronRight, Map, LineChart, Home, Calculator, Landmark, Target, Briefcase } from 'lucide-react'
 
 const STATUSES = ['sourced', 'under_review', 'modeled', 'shortlisted', 'under_contract', 'closed', 'dead']
 
@@ -244,6 +244,59 @@ function EntitlementHistory({ data }) {
   )
 }
 
+function StepSection({ title, icon: Icon, data, stepKey }) {
+  const [open, setOpen] = useState(false)
+  if (!data) return null
+  let parsed
+  try {
+    parsed = typeof data === 'string' ? JSON.parse(data) : data
+  } catch {
+    return (
+      <div className="bg-cw-card border border-cw-border rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-2">
+          {Icon && <Icon className="w-4 h-4 text-gray-400" />}
+          <h3 className="text-sm font-semibold text-gray-400">{title}</h3>
+          <span className="ml-auto text-xs text-cw-red">invalid JSON</span>
+        </div>
+        <pre className="text-xs text-gray-500 overflow-x-auto">{String(data).slice(0, 500)}</pre>
+      </div>
+    )
+  }
+  if (!parsed || (typeof parsed === 'object' && Object.keys(parsed).length === 0)) return null
+
+  const confidence = parsed.confidence || parsed.confidence_tier
+  const summary = parsed.summary || parsed.recommendation || parsed.headline
+
+  return (
+    <div className="bg-cw-card border border-cw-border rounded-xl">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 p-4 text-left hover:bg-cw-hover/30 transition-colors rounded-xl"
+      >
+        {open ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
+        {Icon && <Icon className="w-4 h-4 text-gray-400" />}
+        <h3 className="text-sm font-semibold text-gray-300">{title}</h3>
+        {confidence && (
+          <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded bg-cw-dark border border-cw-border text-gray-400">
+            {confidence}
+          </span>
+        )}
+        {summary && !open && (
+          <span className="ml-2 text-xs text-gray-500 truncate max-w-md">{summary}</span>
+        )}
+        <span className="ml-auto text-[10px] text-gray-600 font-mono">{stepKey}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4">
+          <pre className="text-xs text-gray-300 bg-cw-dark rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">
+{JSON.stringify(parsed, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function DealDetail({ dealId, onBack }) {
   const [deal, setDeal] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -396,6 +449,24 @@ export default function DealDetail({ dealId, onBack }) {
 
       {/* Entitlement History */}
       <EntitlementHistory data={deal.entitlement_data} />
+
+      {/* Dev Agent Step Outputs */}
+      <Section title="Dev Agent Underwriting" icon={FileText}>
+        <div className="space-y-2">
+          <StepSection title="Step 1 · Zoning & Entitlements" icon={Shield}       data={deal.zoning_data}           stepKey="step_1_zoning" />
+          <StepSection title="Step 2 · Site Conditions"        icon={Map}          data={deal.site_data}             stepKey="step_2_site" />
+          <StepSection title="Step 3 · Market & Rent Comps"    icon={LineChart}    data={deal.market_data}           stepKey="step_3_market" />
+          <StepSection title="Step 3.5 · Strategy Screen"      icon={Target}       data={deal.strategy_screen_data}  stepKey="step_3_5_strategy_screen" />
+          <StepSection title="Step 5 · NOI Underwriting"       icon={Calculator}   data={deal.noi_data}              stepKey="step_5_noi" />
+          <StepSection title="Step 6 · Development Costs"      icon={Home}         data={deal.dev_cost_data}         stepKey="step_6_dev_costs" />
+          <StepSection title="Step 7 · Financing"              icon={Landmark}     data={deal.financing_data}        stepKey="step_7_financing" />
+          <StepSection title="Step 8 · Returns & Feasibility"  icon={TrendingUp}   data={deal.returns_data}          stepKey="step_8_returns" />
+          <StepSection title="Step 9 · Strategy & Recommendation" icon={Briefcase} data={deal.strategy_data}         stepKey="step_9_strategy" />
+          {![deal.zoning_data, deal.site_data, deal.market_data, deal.strategy_screen_data, deal.noi_data, deal.dev_cost_data, deal.financing_data, deal.returns_data, deal.strategy_data].some(Boolean) && (
+            <div className="text-sm text-gray-500 italic">No dev-agent step outputs yet. Run the deal through the underwriting workflow to populate these sections.</div>
+          )}
+        </div>
+      </Section>
 
       {/* Notes */}
       <Section title="Notes" icon={Edit3}>

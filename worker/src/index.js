@@ -4,6 +4,28 @@
  */
 
 // ────────────────────────────────────────────────────────────────
+// Constants
+// ────────────────────────────────────────────────────────────────
+
+// Columns on the `deals` table that store JSON blobs. The Worker
+// serializes objects to JSON strings on write; the frontend parses
+// them on read. Keep this list in sync with d1-schema.sql and the
+// fields/updatableFields arrays below.
+const JSON_BLOB_FIELDS = new Set([
+  'unit_mix',
+  'entitlement_data',
+  'zoning_data',
+  'site_data',
+  'market_data',
+  'strategy_screen_data',
+  'noi_data',
+  'dev_cost_data',
+  'financing_data',
+  'returns_data',
+  'strategy_data',
+]);
+
+// ────────────────────────────────────────────────────────────────
 // Auth & Utility Functions
 // ────────────────────────────────────────────────────────────────
 
@@ -293,7 +315,12 @@ async function handleCreateDeal(request, env) {
     'notes', 'summary', 'risk_factors', 'investment_thesis', 'entitlement_data',
     'date_listed', 'date_cfo', 'date_best_final', 'date_loi_submitted',
     'date_loi_accepted', 'date_dd_start', 'date_dd_end', 'date_closing',
-    'unit_mix'
+    'unit_mix',
+    // Dev-agent step output blobs (JSON). Shape matches deal-state.json
+    // sections from fordcwprop/dev-agent. Worker serializes objects to
+    // JSON strings at write time; frontend parses them at read time.
+    'zoning_data', 'site_data', 'market_data', 'strategy_screen_data',
+    'noi_data', 'dev_cost_data', 'financing_data', 'returns_data', 'strategy_data'
   ];
 
   const setCols = ['id'];
@@ -303,7 +330,7 @@ async function handleCreateDeal(request, env) {
   for (const field of fields) {
     if (body[field] !== undefined) {
       setCols.push(field);
-      setVals.push((field === 'unit_mix' || field === 'entitlement_data') ? JSON.stringify(body[field]) : body[field]);
+      setVals.push(JSON_BLOB_FIELDS.has(field) ? (typeof body[field] === 'string' ? body[field] : JSON.stringify(body[field])) : body[field]);
       placeholders.push('?');
     }
   }
@@ -347,7 +374,12 @@ async function handleUpdateDeal(request, env, dealId) {
     'notes', 'summary', 'risk_factors', 'investment_thesis', 'entitlement_data',
     'date_listed', 'date_cfo', 'date_best_final', 'date_loi_submitted',
     'date_loi_accepted', 'date_dd_start', 'date_dd_end', 'date_closing',
-    'unit_mix'
+    'unit_mix',
+    // Dev-agent step output blobs (JSON). Shape matches deal-state.json
+    // sections from fordcwprop/dev-agent. Worker serializes objects to
+    // JSON strings at write time; frontend parses them at read time.
+    'zoning_data', 'site_data', 'market_data', 'strategy_screen_data',
+    'noi_data', 'dev_cost_data', 'financing_data', 'returns_data', 'strategy_data'
   ];
 
   const sets = [];
@@ -356,7 +388,7 @@ async function handleUpdateDeal(request, env, dealId) {
 
   for (const field of updatableFields) {
     if (body[field] !== undefined) {
-      const val = (field === 'unit_mix' || field === 'entitlement_data') ? JSON.stringify(body[field]) : body[field];
+      const val = JSON_BLOB_FIELDS.has(field) ? (typeof body[field] === 'string' ? body[field] : JSON.stringify(body[field])) : body[field];
       sets.push(`${field} = ?`);
       vals.push(val);
       if (deal[field] !== val) {

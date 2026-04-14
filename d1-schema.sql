@@ -67,6 +67,19 @@ CREATE TABLE IF NOT EXISTS deals (
     -- Entitlement data (JSON blob)
     entitlement_data TEXT,
 
+    -- Dev-agent step outputs (JSON blobs, one per underwriting step)
+    -- Shape of each blob matches the corresponding deal-state.json section
+    -- in the fordcwprop/dev-agent repo. See Dev Agent/system/architecture.md.
+    zoning_data TEXT,          -- step_1_zoning (the broader zoning output; entitlement_data is the case-history subset)
+    site_data TEXT,            -- step_2_site
+    market_data TEXT,          -- step_3_market
+    strategy_screen_data TEXT, -- step_3_5_strategy_screen
+    noi_data TEXT,             -- step_5_noi
+    dev_cost_data TEXT,        -- step_6_dev_costs
+    financing_data TEXT,       -- step_7_financing
+    returns_data TEXT,         -- step_8_returns
+    strategy_data TEXT,        -- step_9_strategy
+
     -- Key dates
     date_listed TEXT,
     date_cfo TEXT,
