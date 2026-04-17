@@ -647,6 +647,45 @@ function KVTable({ rows }) {
   )
 }
 
+// Stabilized value = underwritten NOI / 5.15% cap rate. Shown at the end of
+// both NOI Underwriting and Development Budget sections in the scenario modal.
+// Also reports value/unit and spread vs. TDC when both are present.
+const STABILIZED_CAP_RATE = 0.0515
+
+function StabilizedValueBox({ noi, tdc, units }) {
+  if (!noi || !isFinite(noi) || noi <= 0) return null
+  const value = noi / STABILIZED_CAP_RATE
+  const fmtM = (v) => `$${(v / 1e6).toFixed(2)}M`
+  const fmtK = (v) => `$${Math.round(v / 1000).toLocaleString()}K`
+  const valuePerUnit = units ? value / units : null
+  const spreadVsTdc = (tdc && isFinite(tdc) && tdc > 0) ? value - tdc : null
+  const spreadPct = (tdc && spreadVsTdc != null) ? spreadVsTdc / tdc : null
+  return (
+    <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-emerald-300/80">
+            Stabilized Value @ {(STABILIZED_CAP_RATE * 100).toFixed(2)}% cap
+          </div>
+          <div className="text-xs text-gray-500 mt-0.5">
+            NOI ÷ {(STABILIZED_CAP_RATE * 100).toFixed(2)}%
+            {valuePerUnit ? <span> · {fmtK(valuePerUnit)}/unit</span> : null}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-xl font-semibold text-emerald-200">{fmtM(value)}</div>
+          {spreadVsTdc != null ? (
+            <div className={`text-xs mt-0.5 ${spreadVsTdc >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {spreadVsTdc >= 0 ? '+' : ''}{fmtM(spreadVsTdc)} vs TDC
+              {spreadPct != null ? ` (${(spreadPct * 100).toFixed(1)}%)` : ''}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ScenarioDetailDrawer({ scenario, sources, onClose }) {
   if (!scenario) return null
   const s4 = scenario.step_4_unit_mix || {}
@@ -713,9 +752,9 @@ function ScenarioDetailDrawer({ scenario, sources, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex justify-end" onClick={onBackdrop}>
-      <div className="w-full max-w-3xl h-full overflow-y-auto bg-cw-bg border-l border-cw-border shadow-2xl">
+      <div className="w-full max-w-3xl h-full overflow-y-auto bg-cw-dark border-l border-cw-border shadow-2xl">
         {/* Header */}
-        <div className="sticky top-0 bg-cw-bg border-b border-cw-border px-6 py-4 flex items-start justify-between z-10">
+        <div className="sticky top-0 bg-cw-dark border-b border-cw-border px-6 py-4 flex items-start justify-between z-10">
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-white">{scenario.name || scenario.id}</h2>
@@ -835,6 +874,7 @@ function ScenarioDetailDrawer({ scenario, sources, onClose }) {
                 ]} />
               )
             })()}
+            <StabilizedValueBox noi={s5.noi ?? s5.stabilized_noi ?? s5.noi_total} tdc={tdc} units={units} />
           </Section>
 
           {/* Dev costs — full line-item table with per-unit and per-SF columns */}
@@ -898,6 +938,7 @@ function ScenarioDetailDrawer({ scenario, sources, onClose }) {
                 </div>
               )
             })()}
+            <StabilizedValueBox noi={s5.noi ?? s5.stabilized_noi ?? s5.noi_total} tdc={tdc} units={units} />
           </Section>
 
           {/* Financing — reads recommended_path + scenarios[] details */}
