@@ -1988,18 +1988,50 @@ export default function DealDetail({ dealId, onBack }) {
             {' '}Basis / financing / $-per-unit metrics still shown below.
           </div>
         )}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          <MetricCard label="Going-in Cap" value={fmtPct(m.going_in_cap_rate)} good={m.going_in_cap_rate >= 0.055} warn={m.going_in_cap_rate >= 0.045} />
-          <MetricCard label="DSCR" value={m.dscr ? `${m.dscr.toFixed(2)}x` : '—'} good={m.dscr >= 1.25} warn={m.dscr >= 1.15} />
-          <MetricCard label="Cash-on-Cash" value={fmtPct(m.cash_on_cash)} good={m.cash_on_cash >= 0.06} warn={m.cash_on_cash >= 0.04} />
-          <MetricCard label="Levered IRR" value={fmtPct(m.levered_irr)} good={m.levered_irr >= 0.13} warn={m.levered_irr >= 0.10} />
-          <MetricCard label="Equity Multiple" value={m.equity_multiple ? `${m.equity_multiple.toFixed(2)}x` : '—'} good={m.equity_multiple >= 1.8} warn={m.equity_multiple >= 1.5} />
-          <MetricCard label="NOI" value={fmtMoney(m.noi)} />
-          <MetricCard label="Price / Unit" value={fmtMoney(m.price_per_unit)} />
-          <MetricCard label="Price / SF" value={fmtMoney(m.price_per_sf)} />
-          <MetricCard label="Yield on Cost" value={fmtPct(m.yield_on_cost)} />
-          <MetricCard label="Expense Ratio" value={fmtPct(m.expense_ratio)} />
-        </div>
+        {(() => {
+          // Jack's preference: headline should be YoC from the most recent
+          // (primary) scenario rather than a going-in cap rate, since our
+          // deals are predominantly development where the "purchase price"
+          // on the DB row is actually TDC, which makes going-in-cap math
+          // coincide with YoC but with a confusing label.
+          const primaryScenarioYoc = (() => {
+            try {
+              const raw = deal.scenarios_data
+              const arr = typeof raw === 'string' ? JSON.parse(raw) : raw
+              if (!Array.isArray(arr) || !arr.length) return null
+              const sorted = [...arr].sort((a, b) => {
+                if (a.primary && !b.primary) return -1
+                if (b.primary && !a.primary) return 1
+                if (a.archived && !b.archived) return 1
+                if (b.archived && !a.archived) return -1
+                return (b.created_at || '').localeCompare(a.created_at || '')
+              })
+              const top = sorted[0]
+              const s8 = top?.step_8_returns || {}
+              const s6 = top?.step_6_dev_costs || {}
+              return s8.yield_on_cost ?? s8.yoc
+                   ?? s6.feasibility_analysis?.implied_yoc_at_tdc ?? null
+            } catch { return null }
+          })()
+          const displayYoc = primaryScenarioYoc ?? m.yield_on_cost
+          return (
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              <MetricCard
+                label={primaryScenarioYoc != null ? 'YoC (primary scenario)' : 'Yield on Cost'}
+                value={fmtPct(displayYoc)}
+                good={displayYoc >= 0.065} warn={displayYoc >= 0.060}
+              />
+              <MetricCard label="DSCR" value={m.dscr ? `${m.dscr.toFixed(2)}x` : '—'} good={m.dscr >= 1.25} warn={m.dscr >= 1.15} />
+              <MetricCard label="Cash-on-Cash" value={fmtPct(m.cash_on_cash)} good={m.cash_on_cash >= 0.06} warn={m.cash_on_cash >= 0.04} />
+              <MetricCard label="Levered IRR" value={fmtPct(m.levered_irr)} good={m.levered_irr >= 0.13} warn={m.levered_irr >= 0.10} />
+              <MetricCard label="Equity Multiple" value={m.equity_multiple ? `${m.equity_multiple.toFixed(2)}x` : '—'} good={m.equity_multiple >= 1.8} warn={m.equity_multiple >= 1.5} />
+              <MetricCard label="NOI" value={fmtMoney(m.noi)} />
+              <MetricCard label="Price / Unit" value={fmtMoney(m.price_per_unit)} />
+              <MetricCard label="Price / SF" value={fmtMoney(m.price_per_sf)} />
+              <MetricCard label="Expense Ratio" value={fmtPct(m.expense_ratio)} />
+            </div>
+          )
+        })()}
       </Section>
 
       {/* Scenarios (past & current models) */}
