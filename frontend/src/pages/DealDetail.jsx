@@ -1074,6 +1074,296 @@ function EntitlementHistory({ data }) {
   )
 }
 
+// ────────────────────────────────────────────────────────────────
+// SmartJSON — human-readable renderer for step-output JSON blobs
+// ────────────────────────────────────────────────────────────────
+//
+// Replaces <pre>{JSON.stringify(...)}</pre> with a structured recursive
+// renderer. Design intent:
+//   - Scalars render in a 2-col field grid (label + value)
+//   - Arrays of objects with overlapping keys render as compact tables
+//   - Arrays of strings render as bullet lists; URLs become links
+//   - Nested objects become sub-sections with a title
+//   - Hidden/internal keys (_contract, _description, status, completed_at)
+//     are skipped from the body — those already have their own UI chrome
+//   - Money/percent/date/URL detection makes the output scannable
+//
+// Applied in StepSection so every step output gets the upgrade automatically.
+
+const SMART_SKIP_KEYS = new Set([
+  '_contract', '_description', '_usage', '_contract_spec',
+  'status', 'completed_at',
+])
+
+function smartTitleize(k) {
+  if (!k) return ''
+  // "gross_potential_rent" -> "Gross Potential Rent"
+  // "step_3_market" -> "Step 3 Market"
+  return k.replace(/_/g, ' ')
+          .replace(/\b\w/g, c => c.toUpperCase())
+          .replace(/\bSf\b/g, 'SF')
+          .replace(/\bNoi\b/g, 'NOI')
+          .replace(/\bLtv\b/g, 'LTV')
+          .replace(/\bLtc\b/g, 'LTC')
+          .replace(/\bDscr\b/g, 'DSCR')
+          .replace(/\bYoc\b/g, 'YoC')
+          .replace(/\bIrr\b/g, 'IRR')
+          .replace(/\bMsa\b/g, 'MSA')
+          .replace(/\bGpr\b/g, 'GPR')
+          .replace(/\bHud\b/g, 'HUD')
+          .replace(/\bVhda\b/g, 'VHDA')
+          .replace(/\bBtr\b/g, 'BTR')
+          .replace(/\bOm\b/g, 'OM')
+          .replace(/\bUrl\b/g, 'URL')
+          .replace(/\bAcs\b/g, 'ACS')
+          .replace(/\bBls\b/g, 'BLS')
+          .replace(/\bDot\b/g, 'DOT')
+          .replace(/\bPsf\b/g, 'PSF')
+          .replace(/\bNwi\b/g, 'NWI')
+          .replace(/\bFema\b/g, 'FEMA')
+          .replace(/\bEpa\b/g, 'EPA')
+          .replace(/\bCbsa\b/g, 'CBSA')
+}
+
+// Key-based hints for formatting scalar values. Matches are case-insensitive
+// substring checks.
+const MONEY_HINTS    = ['price', 'cost', 'rent', 'noi', 'gpr', 'egi', 'basis', 'value', 'income', 'expense', 'proceeds', 'tdc', 'debt', 'equity', 'capex', 'fee', '_psf', 'psf', 'reserve', 'concession']
+const PCT_HINTS      = ['rate', 'pct', 'percent', 'ratio', 'vacancy', 'ltv', 'ltc', 'share', 'margin']
+const COUNT_HINTS    = ['units', 'count', 'sf', 'sq_ft', 'sqft', 'months', 'years', 'yrs', 'population', 'speakers']
+const DATE_HINTS     = ['date', '_at', 'timestamp']
+const URL_HINTS      = ['url', 'link', 'href', 'source']
+
+function hintMatch(key, hints) {
+  const k = (key || '').toLowerCase()
+  return hints.some(h => k === h || k.endsWith('_' + h) || k.includes(h))
+}
+
+function isUrlString(s) {
+  return typeof s === 'string' && /^https?:\/\//i.test(s)
+}
+
+function formatSmartScalar(key, val) {
+  if (val === null || val === undefined || val === '') return <span className="text-gray-600">—</span>
+  if (typeof val === 'boolean') {
+    return val
+      ? <span className="text-cw-green">✓ yes</span>
+      : <span className="text-gray-500">✗ no</span>
+  }
+  if (typeof val === 'string') {
+    if (isUrlString(val)) {
+      const short = val.replace(/^https?:\/\//, '').replace(/\/$/, '').slice(0, 60)
+      return <a href={val} target="_blank" rel="noopener noreferrer" className="text-cw-accent hover:underline break-all">{short}{val.length > 65 ? '…' : ''}</a>
+    }
+    // Try to pretty-print long prose inline; keep short strings as-is
+    return <span className="whitespace-pre-wrap break-words">{val}</span>
+  }
+  if (typeof val === 'number') {
+    // Percent: values between 0-1 with percent-hint key, OR >1 with percent hint but <=100
+    if (hintMatch(key, PCT_HINTS)) {
+      if (val > 0 && val <= 1) return `${(val * 100).toFixed(2)}%`
+      if (val > 1 && val <= 100) return `${val.toFixed(2)}%`
+      return val.toString()
+    }
+    if (hintMatch(key, MONEY_HINTS)) {
+      if (Math.abs(val) >= 1e9) return `$${(val / 1e9).toFixed(2)}B`
+      if (Math.abs(val) >= 1e6) return `$${(val / 1e6).toFixed(2)}M`
+      if (Math.abs(val) >= 1e3) return `$${Math.round(val).toLocaleString()}`
+      return `$${val.toLocaleString()}`
+    }
+    if (hintMatch(key, COUNT_HINTS)) {
+      return Math.round(val).toLocaleString()
+    }
+    // Generic number
+    if (Number.isInteger(val)) return val.toLocaleString()
+    return val.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  }
+  // Fallback for exotic types
+  return <span className="font-mono text-xs">{JSON.stringify(val)}</span>
+}
+
+// Detect whether an array of objects is "table-shaped" — shares ≥2 keys
+// across items so a grid layout is meaningful.
+function isTableShaped(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) return false
+  if (!arr.every(x => x && typeof x === 'object' && !Array.isArray(x))) return false
+  const keyCounts = {}
+  arr.forEach(o => Object.keys(o).forEach(k => { keyCounts[k] = (keyCounts[k] || 0) + 1 }))
+  const common = Object.entries(keyCounts).filter(([, c]) => c >= Math.max(2, Math.floor(arr.length * 0.5)))
+  return common.length >= 2
+}
+
+function SmartTable({ rows }) {
+  // Union of keys across rows, ordered by frequency
+  const counts = {}
+  rows.forEach(o => Object.keys(o).forEach(k => { counts[k] = (counts[k] || 0) + 1 }))
+  const cols = Object.entries(counts)
+    .filter(([k]) => !SMART_SKIP_KEYS.has(k))
+    .sort((a, b) => b[1] - a[1])
+    .map(([k]) => k)
+    .slice(0, 8) // cap at 8 cols so table stays scannable
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm min-w-[400px]">
+        <thead>
+          <tr className="text-left text-xs text-gray-500 border-b border-cw-border">
+            {cols.map(c => <th key={c} className="py-1.5 pr-3 font-medium">{smartTitleize(c)}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="border-b border-cw-border/40 align-top">
+              {cols.map(c => {
+                const v = r[c]
+                return (
+                  <td key={c} className="py-1.5 pr-3">
+                    {v && typeof v === 'object'
+                      ? <SmartJSON data={v} depth={2} inline />
+                      : formatSmartScalar(c, v)}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function SmartArray({ arr, parentKey }) {
+  if (arr.length === 0) return <span className="text-gray-600 text-sm italic">none</span>
+  // All scalars → bullet list (URLs become links)
+  if (arr.every(x => x === null || typeof x !== 'object')) {
+    return (
+      <ul className="list-disc ml-5 space-y-1 text-sm">
+        {arr.map((v, i) => <li key={i}>{formatSmartScalar(parentKey, v)}</li>)}
+      </ul>
+    )
+  }
+  // Table-shaped → compact table
+  if (isTableShaped(arr)) {
+    return <SmartTable rows={arr} />
+  }
+  // Mixed / deep → render each item as a mini card
+  return (
+    <div className="space-y-2">
+      {arr.map((v, i) => (
+        <div key={i} className="bg-cw-dark/40 border border-cw-border/60 rounded p-2">
+          {v && typeof v === 'object'
+            ? <SmartJSON data={v} depth={2} />
+            : formatSmartScalar(parentKey, v)}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SmartJSON({ data, depth = 0, inline = false }) {
+  if (data === null || data === undefined) return null
+
+  if (typeof data !== 'object') {
+    return formatSmartScalar('', data)
+  }
+
+  if (Array.isArray(data)) {
+    return <SmartArray arr={data} />
+  }
+
+  // Object: separate scalars from nested
+  const entries = Object.entries(data).filter(([k]) => !SMART_SKIP_KEYS.has(k))
+  if (entries.length === 0) return null
+
+  const scalars = []
+  const nested = []
+  for (const [k, v] of entries) {
+    if (v === null || typeof v !== 'object') {
+      scalars.push([k, v])
+    } else if (Array.isArray(v) && v.every(x => x === null || typeof x !== 'object')) {
+      // array of scalars — render inline in the scalar grid if short
+      if (v.length <= 3) scalars.push([k, v])
+      else nested.push([k, v])
+    } else {
+      nested.push([k, v])
+    }
+  }
+
+  // Inline mode (used inside table cells): flat listing, no section chrome
+  if (inline) {
+    return (
+      <div className="space-y-1 text-xs">
+        {scalars.map(([k, v]) => (
+          <div key={k}>
+            <span className="text-gray-500">{smartTitleize(k)}:</span>{' '}
+            {Array.isArray(v)
+              ? v.map((x, i) => <span key={i}>{i > 0 ? ', ' : ''}{formatSmartScalar(k, x)}</span>)
+              : formatSmartScalar(k, v)}
+          </div>
+        ))}
+        {nested.map(([k, v]) => (
+          <div key={k}>
+            <span className="text-gray-500">{smartTitleize(k)}:</span>{' '}
+            <SmartJSON data={v} depth={depth + 1} inline />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {scalars.length > 0 && (
+        <div className="grid grid-cols-[minmax(160px,1fr)_2fr] gap-x-4 gap-y-1.5 text-sm">
+          {scalars.map(([k, v]) => (
+            <React.Fragment key={k}>
+              <div className="text-gray-500 pt-0.5">{smartTitleize(k)}</div>
+              <div className="text-gray-200">
+                {Array.isArray(v)
+                  ? <span className="space-x-1">{v.map((x, i) => (
+                      <span key={i}>
+                        {formatSmartScalar(k, x)}{i < v.length - 1 ? ',' : ''}
+                      </span>
+                    ))}</span>
+                  : formatSmartScalar(k, v)}
+              </div>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+      {nested.map(([k, v]) => (
+        <SmartSubsection key={k} title={smartTitleize(k)} depth={depth}>
+          <SmartJSON data={v} depth={depth + 1} />
+        </SmartSubsection>
+      ))}
+    </div>
+  )
+}
+
+function SmartSubsection({ title, depth, children }) {
+  // First-level nesting: always expanded (it's the main substance of the step)
+  // Deeper nesting: collapsible, closed by default to keep the page scannable
+  const [open, setOpen] = useState(depth < 1)
+  if (depth < 1) {
+    return (
+      <div className="pt-1">
+        <div className="text-xs uppercase tracking-wide text-gray-500 mb-2 border-b border-cw-border pb-1">{title}</div>
+        {children}
+      </div>
+    )
+  }
+  return (
+    <div className="pt-1">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="text-xs uppercase tracking-wide text-gray-500 mb-1 hover:text-gray-300 flex items-center gap-1"
+      >
+        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        {title}
+      </button>
+      {open && <div className="pl-3 border-l border-cw-border/60">{children}</div>}
+    </div>
+  )
+}
+
 function StepSection({ title, icon: Icon, data, stepKey }) {
   const [open, setOpen] = useState(false)
   if (!data) return null
@@ -1117,10 +1407,10 @@ function StepSection({ title, icon: Icon, data, stepKey }) {
         <span className="ml-auto text-[10px] text-gray-600 font-mono">{stepKey}</span>
       </button>
       {open && (
-        <div className="px-4 pb-4">
-          <pre className="text-xs text-gray-300 bg-cw-dark rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">
-{JSON.stringify(parsed, null, 2)}
-          </pre>
+        <div className="px-4 pb-4 pt-0">
+          <div className="bg-cw-dark rounded-lg p-4">
+            <SmartJSON data={parsed} />
+          </div>
         </div>
       )}
     </div>
