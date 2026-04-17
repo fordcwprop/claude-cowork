@@ -17,12 +17,17 @@ function RiskIndicator({ risk }) {
   return <div className={`w-2 h-2 rounded-full ${colors[risk.level] || 'bg-gray-500'}`} title={`Risk: ${risk.score}/10`} />
 }
 
-function DealCard({ deal, onClick }) {
+function DealCard({ deal, onClick, onDragStart, onDragEnd, isDragging }) {
   const m = deal.metrics || {}
   return (
     <button
+      draggable
+      onDragStart={(e) => onDragStart?.(e, deal)}
+      onDragEnd={onDragEnd}
       onClick={() => onClick(deal.id)}
-      className="w-full text-left bg-cw-dark border border-cw-border rounded-lg p-3 hover:border-cw-accent/50 transition-all group"
+      className={`w-full text-left bg-cw-dark border border-cw-border rounded-lg p-3 hover:border-cw-accent/50 transition-all group cursor-grab active:cursor-grabbing ${
+        isDragging ? 'opacity-40' : ''
+      }`}
     >
       <div className="flex items-start justify-between gap-1 mb-1">
         <div className="text-sm font-medium text-white group-hover:text-cw-accent transition-colors truncate">
@@ -65,6 +70,49 @@ export default function Pipeline({ onNavigateToDeal }) {
   const [stateFilter, setStateFilter] = useState('')
   const [sortField, setSortField] = useState('created_at')
   const [sortDir, setSortDir] = useState('desc')
+  const [draggingId, setDraggingId] = useState(null)
+  const [dragOverColumn, setDragOverColumn] = useState(null)
+
+  // Drag-and-drop: move a deal to a new status column. Optimistic update,
+  // revert on API failure. Status changes are the only mutation here —
+  // other deal fields stay untouched.
+  const handleDragStart = (e, deal) => {
+    setDraggingId(deal.id)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(deal.id))
+  }
+  const handleDragEnd = () => {
+    setDraggingId(null)
+    setDragOverColumn(null)
+  }
+  const handleDragOver = (e, columnKey) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverColumn !== columnKey) setDragOverColumn(columnKey)
+  }
+  const handleDragLeave = (e, columnKey) => {
+    // Only clear if leaving the column itself (not a child element)
+    if (e.currentTarget.contains(e.relatedTarget)) return
+    if (dragOverColumn === columnKey) setDragOverColumn(null)
+  }
+  const handleDrop = (e, newStatus) => {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    setDraggingId(null)
+    setDragOverColumn(null)
+    if (!id) return
+    const deal = deals.find(d => String(d.id) === String(id))
+    if (!deal || deal.status === newStatus) return
+    const prevStatus = deal.status
+    // Optimistic: update local state immediately
+    setDeals(cur => cur.map(d => String(d.id) === String(id) ? { ...d, status: newStatus } : d))
+    api.updateDeal(deal.id, { status: newStatus }).catch(err => {
+      console.error('Failed to update deal status', err)
+      // Revert on failure
+      setDeals(cur => cur.map(d => String(d.id) === String(id) ? { ...d, status: prevStatus } : d))
+      alert(`Could not move "${deal.name}" to ${newStatus}: ${err.message || 'API error'}`)
+    })
+  }
 
   useEffect(() => {
     loadDeals()
@@ -181,26 +229,52 @@ export default function Pipeline({ onNavigateToDeal }) {
         <div className="flex-1 overflow-x-auto">
           <div className="flex gap-4 h-full min-w-max">
             {STATUS_COLUMNS.map(col => (
-              <div key={col.key} className="w-72 flex flex-col shrink-0">
+              <div
+                key={col.key}
+                onDragOver={(e) => handleDragOver(e, col.key)}
+                onDragLeave={(e) => handleDragLeave(e, col.key)}
+                onDrop={(e) => handleDrop(e, col.key)}
+                className={`w-72 flex flex-col shrink-0 rounded-lg transition-colors ${
+                  dragOverColumn === col.key ? 'bg-cw-accent/10 ring-2 ring-cw-accent/40' : ''
+                }`}
+              >
                 <div className={`flex items-center gap-2 mb-3 pb-2 border-b-2 ${col.color}`}>
                   <span className="text-sm font-semibold text-gray-300">{col.label}</span>
                   <span className="text-xs bg-cw-dark px-1.5 py-0.5 rounded text-gray-500">
                     {(dealsByStatus[col.key] || []).length}
                   </span>
                 </div>
-                <div className="flex-1 space-y-2 overflow-y-auto pr-1">
+                <div className="flex-1 space-y-2 overflow-y-auto pr-1 min-h-[4rem]">
                   {(dealsByStatus[col.key] || []).map(deal => (
-                    <DealCard key={deal.id} deal={deal} onClick={onNavigateToDeal} />
+                    <DealCard
+                      key={deal.id}
+                      deal={deal}
+                      onClick={onNavigateToDeal}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      isDragging={String(draggingId) === String(deal.id)}
+                    />
                   ))}
                   {(dealsByStatus[col.key] || []).length === 0 && (
-                    <div className="text-xs text-gray-600 text-center py-4">No deals</div>
+                    <div className="text-xs text-gray-600 text-center py-4">
+                      {dragOverColumn === col.key ? 'Drop to move here' : 'No deals'}
+                    </div>
                   )}
                 </div>
               </div>
             ))}
-            {/* Killed/Dead column - collapsible (both statuses pooled) */}
-            {deadDeals.length > 0 && (
-              <div className="w-72 flex flex-col shrink-0">
+            {/* Killed column - collapsible, also a drop target. Rendered
+                whenever there are killed deals OR a drag is in progress
+                (so you can always drag a deal here to kill it). */}
+            {(deadDeals.length > 0 || draggingId) && (
+              <div
+                onDragOver={(e) => handleDragOver(e, 'killed')}
+                onDragLeave={(e) => handleDragLeave(e, 'killed')}
+                onDrop={(e) => handleDrop(e, 'killed')}
+                className={`w-72 flex flex-col shrink-0 rounded-lg transition-colors ${
+                  dragOverColumn === 'killed' ? 'bg-red-500/10 ring-2 ring-red-500/40' : ''
+                }`}
+              >
                 <button
                   onClick={() => setShowDead(!showDead)}
                   className="flex items-center gap-2 mb-3 pb-2 border-b-2 border-red-500 text-left"
@@ -209,11 +283,29 @@ export default function Pipeline({ onNavigateToDeal }) {
                   <span className="text-xs bg-cw-dark px-1.5 py-0.5 rounded text-gray-500">{deadDeals.length}</span>
                   <ChevronDown className={`w-3 h-3 text-gray-500 transition-transform ${showDead ? 'rotate-180' : ''}`} />
                 </button>
-                {showDead && (
-                  <div className="flex-1 space-y-2 overflow-y-auto pr-1 opacity-60">
+                {showDead ? (
+                  <div className="flex-1 space-y-2 overflow-y-auto pr-1 opacity-60 min-h-[4rem]">
                     {deadDeals.map(deal => (
-                      <DealCard key={deal.id} deal={deal} onClick={onNavigateToDeal} />
+                      <DealCard
+                        key={deal.id}
+                        deal={deal}
+                        onClick={onNavigateToDeal}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                        isDragging={String(draggingId) === String(deal.id)}
+                      />
                     ))}
+                    {deadDeals.length === 0 && (
+                      <div className="text-xs text-gray-600 text-center py-4">
+                        {dragOverColumn === 'killed' ? 'Drop to kill' : 'No killed deals'}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex-1 min-h-[4rem]">
+                    {dragOverColumn === 'killed' && (
+                      <div className="text-xs text-red-400 text-center py-4">Drop to kill</div>
+                    )}
                   </div>
                 )}
               </div>
