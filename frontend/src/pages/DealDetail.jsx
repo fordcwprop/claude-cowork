@@ -4,6 +4,24 @@ import { ArrowLeft, Star, Save, AlertTriangle, CheckCircle, XCircle, TrendingUp,
 // SiteMap removed: react-leaflet@5 requires React 19; project uses React 18
 function buildMapPropsFromDeal() { return null }
 
+// Reverse Windows-1252 mojibake that occurs when UTF-8 bytes were decoded as
+// cp1252 then re-stored. E.g. "â€"" → "—", "â€¢" → "•".
+const W1252_TO_BYTE = {0x20AC:0x80,0x201A:0x82,0x0192:0x83,0x201E:0x84,0x2026:0x85,0x2020:0x86,0x2021:0x87,0x02C6:0x88,0x2030:0x89,0x0160:0x8A,0x2039:0x8B,0x0152:0x8C,0x017D:0x8E,0x2018:0x91,0x2019:0x92,0x201C:0x93,0x201D:0x94,0x2022:0x95,0x2013:0x96,0x2014:0x97,0x02DC:0x98,0x2122:0x99,0x0161:0x9A,0x203A:0x9B,0x0153:0x9C,0x017E:0x9E,0x0178:0x9F}
+function fixMojibake(str) {
+  if (typeof str !== 'string') return str
+  try {
+    const bytes = new Uint8Array(str.length)
+    for (let i = 0; i < str.length; i++) {
+      const cp = str.charCodeAt(i)
+      const b = W1252_TO_BYTE[cp] ?? (cp < 0x100 ? cp : null)
+      if (b === null) return str
+      bytes[i] = b
+    }
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    return decoded !== str ? decoded : str
+  } catch { return str }
+}
+
 const STATUSES = ['sourced', 'under_review', 'modeled', 'shortlisted', 'under_contract', 'closed', 'killed', 'dead']
 
 function MetricCard({ label, value, sub, good, warn }) {
@@ -187,9 +205,9 @@ function PhaseBreakdownCard({ data }) {
 // Returns null for deals that haven't run step_2b yet.
 function DemographicsCard({ data }) {
   const d = typeof data === 'string' ? (() => { try { return JSON.parse(data) } catch { return null } })() : data
-  if (!d || (!d.areas && !d.narrative && !d.takeaway_for_site)) return null
+  if (!d || (!d.areas && !d.msa && !d.narrative && !d.takeaway_for_site)) return null
 
-  const areas = d.areas || {}
+  const areas = d.areas || { msa: d.msa, submarket: d.submarket, tract_local: d.tract_local }
   const hotCold = d.hot_cold_map || {}
   const special = Array.isArray(d.special_notes) ? d.special_notes : []
   const takeaway = d.takeaway_for_site || {}
@@ -197,7 +215,7 @@ function DemographicsCard({ data }) {
 
   // Metric display order + labels. Match SKILL.md metrics_tracked.
   const METRICS = [
-    ['median_household_income',  'Median HH Income',  'money'],
+    ['median_hh_income',          'Median HH Income',  'money'],
     ['population',               'Population',        'int'],
     ['pct_bachelors_plus',       "Bachelor's+",       'pct'],
     ['unemployment_rate',        'Unemployment',      'pct'],
@@ -218,17 +236,26 @@ function DemographicsCard({ data }) {
   }
 
   const getMetric = (area, key) => {
+    // Schema v2 (dev-agent step_2b output): area.metrics[key].{current, prior, change_pct, trend_label}
+    // Per-area scalar percentile; trend_label per metric.
+    const m = area?.metrics?.[key]
+    if (m != null) {
+      const curVal = m.current ?? m.value
+      const priVal = m.prior
+      const legacyPct = m.change_pct
+      const label = m.trend_label
+      const levelPct = area?.level_percentile_within_msa ?? area?.level_percentile_within_region
+      return { curVal, priVal, ann: null, kind: 'level', label, levelPct, legacyPct }
+    }
+    // Schema v1 fallback: area.current[key], area.annualized[key], area.trend_labels[key]
     const cur = area?.current?.[key]
     const pri = area?.prior?.[key]
     const curVal = typeof cur === 'object' && cur !== null ? cur.value : cur
     const priVal = typeof pri === 'object' && pri !== null ? pri.value : pri
-    // Annualized change: CAGR for levels (fractional), pp/yr for rates (absolute pp).
-    // Falls back to old change_pct field for back-compat with pre-CAGR payloads.
     const ann = area?.annualized?.[key]
     const kind = area?.change_kind?.[key] || 'level'
     const label = area?.trend_labels?.[key]
     const levelPct = area?.level_percentile_within_msa?.[key] ?? area?.level_percentile_within_region?.[key]
-    // Back-compat: total % change if annualized not present
     const legacyPct = area?.change_pct?.[key]
     return { curVal, priVal, ann, kind, label, levelPct, legacyPct }
   }
@@ -321,7 +348,7 @@ function DemographicsCard({ data }) {
       {d.narrative && (
         <div className="bg-cw-dark rounded-lg p-4 mb-4">
           <div className="text-xs text-gray-500 uppercase tracking-wide mb-2">Narrative</div>
-          <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{d.narrative}</p>
+          <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{fixMojibake(d.narrative)}</p>
         </div>
       )}
 
@@ -331,7 +358,7 @@ function DemographicsCard({ data }) {
           <div className="text-xs text-gray-500 uppercase tracking-wide mb-2">Takeaway for this site</div>
           {Array.isArray(takeaway.key_signals) && takeaway.key_signals.length > 0 && (
             <ul className="text-sm text-gray-200 list-disc ml-5 mb-2 space-y-0.5">
-              {takeaway.key_signals.map((s, i) => <li key={i}>{s}</li>)}
+              {takeaway.key_signals.map((s, i) => <li key={i}>{fixMojibake(s)}</li>)}
             </ul>
           )}
           {takeaway.rent_implication && (
@@ -350,9 +377,9 @@ function DemographicsCard({ data }) {
           <thead>
             <tr className="text-xs text-gray-500 border-b border-cw-border">
               <th className="text-left pb-2 pr-2">Metric</th>
-              <th className="text-left pb-2 px-2">{areas.msa?.label || 'MSA'}</th>
-              <th className="text-left pb-2 px-2">{areas.submarket?.label || 'Submarket'}</th>
-              <th className="text-left pb-2 px-2">{areas.tract_local?.combined_label || 'Site tract'}</th>
+              <th className="text-left pb-2 px-2">{areas.msa?.label || areas.msa?.name || 'MSA'}</th>
+              <th className="text-left pb-2 px-2">{areas.submarket?.label || areas.submarket?.name || 'Submarket'}</th>
+              <th className="text-left pb-2 px-2">{areas.tract_local?.combined_label || areas.tract_local?.name || 'Site tract'}</th>
             </tr>
           </thead>
           <tbody>
@@ -1462,7 +1489,7 @@ function formatSmartScalar(key, val) {
       return <a href={val} target="_blank" rel="noopener noreferrer" className="text-cw-accent hover:underline break-all">{short}{val.length > 65 ? '…' : ''}</a>
     }
     // Try to pretty-print long prose inline; keep short strings as-is
-    return <span className="whitespace-pre-wrap break-words">{val}</span>
+    return <span className="whitespace-pre-wrap break-words">{fixMojibake(val)}</span>
   }
   if (typeof val === 'number') {
     // Percent: values between 0-1 with percent-hint key, OR >1 with percent hint but <=100
@@ -1795,6 +1822,8 @@ export default function DealDetail({ dealId, onBack }) {
   const [saving, setSaving] = useState(false)
   const [editNotes, setEditNotes] = useState(false)
   const [notes, setNotes] = useState('')
+  const [gisEditing, setGisEditing] = useState(false)
+  const [gisUrlDraft, setGisUrlDraft] = useState('')
 
   useEffect(() => {
     if (!dealId) return
@@ -1817,6 +1846,11 @@ export default function DealDetail({ dealId, onBack }) {
   const saveNotes = async () => {
     await updateField('notes', notes)
     setEditNotes(false)
+  }
+
+  const saveGisUrl = async () => {
+    await updateField('gis_url', gisUrlDraft.trim())
+    setGisEditing(false)
   }
 
   if (loading || !deal) {
@@ -1848,9 +1882,38 @@ export default function DealDetail({ dealId, onBack }) {
             </button>
             {saving && <span className="text-xs text-gray-500">Saving...</span>}
           </div>
-          <div className="text-sm text-gray-500 mt-0.5">
-            {[deal.address, deal.city, deal.state].filter(Boolean).join(', ')}
-            {deal.submarket ? ` · ${deal.submarket}` : ''}
+          <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-2 flex-wrap">
+            <span>{[deal.address, deal.city, deal.state].filter(Boolean).join(', ')}{deal.submarket ? ` · ${deal.submarket}` : ''}</span>
+            {gisEditing ? (
+              <span className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={gisUrlDraft}
+                  onChange={e => setGisUrlDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveGisUrl(); if (e.key === 'Escape') setGisEditing(false) }}
+                  className="bg-cw-dark border border-cw-border rounded px-2 py-0.5 text-xs text-white w-80"
+                  placeholder="https://..."
+                  autoFocus
+                />
+                <button onClick={saveGisUrl} className="text-xs text-green-400 hover:text-green-300">save</button>
+                <button onClick={() => setGisEditing(false)} className="text-xs text-gray-600 hover:text-gray-400">cancel</button>
+              </span>
+            ) : deal.gis_url ? (
+              <span className="flex items-center gap-1">
+                <a href={deal.gis_url} target="_blank" rel="noopener noreferrer"
+                   className="text-blue-400 hover:text-blue-300 text-xs underline underline-offset-2">GIS ↗</a>
+                <button onClick={() => { setGisUrlDraft(deal.gis_url); setGisEditing(true) }}
+                        className="text-gray-600 hover:text-gray-400" title="Edit GIS link">
+                  <Edit3 className="w-3 h-3" />
+                </button>
+              </span>
+            ) : (
+              <button onClick={() => { setGisUrlDraft(''); setGisEditing(true) }}
+                      className="text-gray-600 hover:text-gray-400 flex items-center gap-1 text-xs"
+                      title="Add GIS link">
+                <MapPin className="w-3 h-3" /><span>GIS</span>
+              </button>
+            )}
           </div>
         </div>
         <select
